@@ -1,0 +1,301 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root {
+    --accent: #00c7fc; --accent-deep: #0046df;
+    --bg0: #070b16; --bg1: #0a0f1c; --bg2: #0f1626;
+    --surface1: rgba(15,22,38,0.7); --surface2: rgba(20,30,50,0.7);
+    --text-primary: #e8f1ff; --text-secondary: #aab8cc; --text-muted: rgba(232,241,255,0.45);
+    --border-subtle: rgba(255,255,255,0.08); --border-strong: rgba(255,255,255,0.16);
+    --ok: #46d39a; --warn: #f0b73d; --err: #ef5b6e;
+    --inactive: #6b7a90;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg1); color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px; overflow: hidden;
+  }
+  body { display: flex; flex-direction: column; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg0);
+  }
+  .tabs { display: flex; gap: 2px; }
+  .tabs button {
+    border: none; border-bottom: 2px solid transparent;
+    border-radius: 0; background: transparent;
+    padding: 6px 12px; color: var(--text-secondary);
+    font-family: inherit; font-size: 11px; cursor: pointer;
+  }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  input[type="search"] {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--surface1);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--text-primary); font-family: inherit; font-size: 12px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+
+  button {
+    padding: 6px 12px; font-family: inherit; font-size: 11px;
+    color: var(--text-primary); background: var(--surface1);
+    border: 1px solid var(--border-subtle); border-radius: 4px;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary {
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+    border-color: rgba(0, 199, 252, 0.45);
+  }
+  button.primary:hover:not(:disabled) { color: #fff; }
+  button.danger { color: var(--err); border-color: rgba(239,91,110,0.4); }
+  button.danger:hover:not(:disabled) { color: #fff; background: var(--err); border-color: var(--err); }
+  button.tiny { padding: 3px 8px; font-size: 10px; }
+
+  .body { flex: 1; min-height: 0; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 6px 12px; text-align: left;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+  }
+  th {
+    position: sticky; top: 0; background: var(--bg0); z-index: 1;
+    color: var(--text-muted); font-size: 9px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  td.actions { white-space: nowrap; }
+  td.dim { color: var(--text-secondary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  tr:hover td { background: var(--surface1); }
+  .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--inactive); margin-right: 6px; vertical-align: middle;
+  }
+  .dot.running { background: var(--ok); box-shadow: 0 0 6px rgba(70,211,154,0.6); }
+  .dot.exited { background: var(--err); }
+  .dot.paused, .dot.restarting { background: var(--warn); }
+
+  .empty, .loading { padding: 32px 16px; text-align: center; color: var(--text-muted); }
+
+  pre.output {
+    margin: 0; padding: 12px;
+    background: var(--bg0);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    font-size: 11px; line-height: 1.5;
+    overflow: auto;
+    white-space: pre-wrap; word-break: break-word;
+    margin: 16px;
+    max-height: calc(100vh - 200px);
+  }
+  .crumb { padding: 10px 16px; color: var(--text-muted); font-size: 11px; border-bottom: 1px solid var(--border-subtle); }
+  .crumb a { color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="tabs">
+      <button data-tab="containers" class="active">Containers</button>
+      <button data-tab="images">Images</button>
+    </div>
+    <input type="search" id="filter" placeholder="Filter…" autocomplete="off" />
+    <button id="refresh" class="primary">Refresh</button>
+  </div>
+  <div class="body" id="body"><div class="loading">Loading…</div></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const escapeHtml = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const SAFE_ID = /^[A-Za-z0-9._\-:/]+$/;
+
+  function applyTheme(theme) {
+    const t = (theme && theme.tokens) || {}; const r = document.documentElement.style;
+    const map = { accent:'--accent', accentDeep:'--accent-deep', bg0:'--bg0', bg1:'--bg1', bg2:'--bg2',
+      surface1:'--surface1', surface2:'--surface2', textPrimary:'--text-primary',
+      textSecondary:'--text-secondary', textMuted:'--text-muted',
+      borderSubtle:'--border-subtle', borderStrong:'--border-strong' };
+    for (const k of Object.keys(map)) if (t[k]) r.setProperty(map[k], t[k]);
+  }
+
+  function looksLikePerm(text) {
+    const t = (text || '').toLowerCase();
+    return t.includes('permission denied') || t.includes('cannot connect to the docker daemon') ||
+      t.includes('not authorized') || t.includes('a password is required') ||
+      t.includes('no tty present') || t.includes('must be root') ||
+      t.includes('access denied') || t.includes('got permission denied while trying');
+  }
+  async function execEsc(cmd) {
+    const r1 = await window.axion.exec(cmd);
+    if (r1.exitCode === 0) return { ok: true, viaSudo: false, result: r1 };
+    const text1 = (r1.stderr || '') + '\n' + (r1.stdout || '');
+    if (!looksLikePerm(text1)) return { ok: false, viaSudo: false, perm: false, result: r1 };
+    const r2 = await window.axion.exec('sudo -n ' + cmd);
+    if (r2.exitCode === 0) return { ok: true, viaSudo: true, result: r2 };
+    return { ok: false, viaSudo: true, perm: true, result: r2 };
+  }
+
+  const SEP = '\x1f';
+  const state = { tab: 'containers', filter: '', view: 'list', logsId: null };
+
+  async function load() {
+    if (state.view !== 'list') return;
+    if (state.tab === 'containers') return loadContainers();
+    return loadImages();
+  }
+
+  async function loadContainers() {
+    $('body').innerHTML = '<div class="loading">Loading containers…</div>';
+    const fmt = ['{{.ID}}','{{.Names}}','{{.Image}}','{{.State}}','{{.Status}}','{{.Ports}}'].join(SEP);
+    const out = await execEsc('docker ps -a --no-trunc --format ' + JSON.stringify(fmt));
+    if (!out.ok) {
+      $('body').innerHTML = '<div class="empty">' +
+        (out.perm ? "Permission denied — can't talk to the docker daemon. Add your user to the 'docker' group, or run as a user that can." :
+        escapeHtml((out.result.stderr || '').trim() || ('exit ' + out.result.exitCode))) +
+        '</div>';
+      return;
+    }
+    const rows = (out.result.stdout || '').split('\n').filter(Boolean).map((line) => {
+      const [id, name, image, statev, status, ports] = line.split(SEP);
+      return { id, name, image, statev, status, ports };
+    });
+    const q = state.filter.toLowerCase();
+    const f = q ? rows.filter(c => (c.name + ' ' + c.image + ' ' + c.id).toLowerCase().includes(q)) : rows;
+    f.sort((a,b) => (a.statev === 'running' ? 0 : 1) - (b.statev === 'running' ? 0 : 1) || a.name.localeCompare(b.name));
+    if (!f.length) { $('body').innerHTML = '<div class="empty">No containers.</div>'; return; }
+    $('body').innerHTML =
+      '<table><thead><tr>' +
+        '<th>State</th><th>Name</th><th>Image</th><th>Status</th><th>Ports</th><th></th>' +
+      '</tr></thead><tbody>' +
+      f.map(c =>
+        '<tr>' +
+          '<td><span class="dot ' + escapeHtml(c.statev) + '"></span>' + escapeHtml(c.statev) + '</td>' +
+          '<td>' + escapeHtml(c.name) + '</td>' +
+          '<td class="dim">' + escapeHtml(c.image) + '</td>' +
+          '<td class="dim">' + escapeHtml(c.status) + '</td>' +
+          '<td class="dim">' + escapeHtml(c.ports || '') + '</td>' +
+          '<td class="actions">' +
+            (c.statev === 'running'
+              ? '<button class="tiny" data-act="stop" data-id="' + escapeHtml(c.id) + '">Stop</button>' +
+                '<button class="tiny" data-act="restart" data-id="' + escapeHtml(c.id) + '">Restart</button>'
+              : '<button class="tiny" data-act="start" data-id="' + escapeHtml(c.id) + '">Start</button>') +
+            ' <button class="tiny" data-act="logs" data-id="' + escapeHtml(c.id) + '" data-name="' + escapeHtml(c.name) + '">Logs</button>' +
+            ' <button class="tiny danger" data-act="rm" data-id="' + escapeHtml(c.id) + '">Remove</button>' +
+          '</td>' +
+        '</tr>'
+      ).join('') +
+      '</tbody></table>';
+    for (const b of $('body').querySelectorAll('button[data-act]')) {
+      b.addEventListener('click', () => containerAction(b.getAttribute('data-act'), b.getAttribute('data-id'), b.getAttribute('data-name')));
+    }
+  }
+
+  async function loadImages() {
+    $('body').innerHTML = '<div class="loading">Loading images…</div>';
+    const fmt = ['{{.ID}}','{{.Repository}}','{{.Tag}}','{{.Size}}','{{.CreatedSince}}'].join(SEP);
+    const out = await execEsc('docker images --format ' + JSON.stringify(fmt));
+    if (!out.ok) {
+      $('body').innerHTML = '<div class="empty">' +
+        (out.perm ? "Permission denied — can't talk to the docker daemon." :
+        escapeHtml((out.result.stderr || '').trim() || ('exit ' + out.result.exitCode))) +
+        '</div>';
+      return;
+    }
+    const rows = (out.result.stdout || '').split('\n').filter(Boolean).map(line => {
+      const [id, repo, tag, size, age] = line.split(SEP);
+      return { id, repo, tag, size, age };
+    });
+    const q = state.filter.toLowerCase();
+    const f = q ? rows.filter(i => (i.repo + ' ' + i.tag + ' ' + i.id).toLowerCase().includes(q)) : rows;
+    if (!f.length) { $('body').innerHTML = '<div class="empty">No images.</div>'; return; }
+    $('body').innerHTML =
+      '<table><thead><tr>' +
+        '<th>Repository</th><th>Tag</th><th>Size</th><th>Age</th><th>ID</th><th></th>' +
+      '</tr></thead><tbody>' +
+      f.map(i =>
+        '<tr>' +
+          '<td>' + escapeHtml(i.repo) + '</td>' +
+          '<td class="dim">' + escapeHtml(i.tag) + '</td>' +
+          '<td class="dim">' + escapeHtml(i.size) + '</td>' +
+          '<td class="dim">' + escapeHtml(i.age) + '</td>' +
+          '<td class="dim">' + escapeHtml(i.id.slice(0, 16)) + '</td>' +
+          '<td class="actions">' +
+            '<button class="tiny danger" data-act="rmi" data-id="' + escapeHtml(i.id) + '">Remove</button>' +
+          '</td>' +
+        '</tr>'
+      ).join('') +
+      '</tbody></table>';
+    for (const b of $('body').querySelectorAll('button[data-act]')) {
+      b.addEventListener('click', () => imageAction(b.getAttribute('data-act'), b.getAttribute('data-id')));
+    }
+  }
+
+  async function containerAction(act, id, name) {
+    if (!SAFE_ID.test(id)) return;
+    if (act === 'logs') return showLogs(id, name || id.slice(0, 12));
+    const map = { start: 'start', stop: 'stop', restart: 'restart', rm: 'rm -f' };
+    const sub = map[act]; if (!sub) return;
+    const cmd = 'docker ' + sub + ' ' + id;
+    const out = await execEsc(cmd);
+    if (out.ok) window.axion.ui.notify(act + ' ' + id.slice(0, 12) + ' — ok', { tone: 'success' });
+    else if (out.perm) window.axion.ui.notify("Permission denied — can't " + act + ' container.', { tone: 'error' });
+    else window.axion.ui.notify(act + ' failed: ' +
+      ((out.result.stderr || out.result.stdout || '').trim().split('\n')[0] || 'exit ' + out.result.exitCode), { tone: 'error' });
+    void load();
+  }
+
+  async function imageAction(act, id) {
+    if (!SAFE_ID.test(id)) return;
+    if (act !== 'rmi') return;
+    const out = await execEsc('docker rmi ' + id);
+    if (out.ok) window.axion.ui.notify('removed image ' + id.slice(7, 19), { tone: 'success' });
+    else if (out.perm) window.axion.ui.notify("Permission denied removing image.", { tone: 'error' });
+    else window.axion.ui.notify('rmi failed: ' +
+      ((out.result.stderr || out.result.stdout || '').trim().split('\n')[0] || 'exit ' + out.result.exitCode), { tone: 'error' });
+    void load();
+  }
+
+  async function showLogs(id, name) {
+    state.view = 'logs'; state.logsId = id;
+    $('body').innerHTML =
+      '<div class="crumb"><a id="back">← Back</a> · logs for <b>' + escapeHtml(name) + '</b></div>' +
+      '<pre class="output" id="logs">Loading…</pre>';
+    $('back').addEventListener('click', () => { state.view = 'list'; void load(); });
+    const out = await execEsc('docker logs --tail 500 ' + id + ' 2>&1');
+    $('logs').textContent = (out.result.stdout || '').trim() || '(no output)';
+  }
+
+  for (const b of document.querySelectorAll('.tabs button')) {
+    b.addEventListener('click', () => {
+      state.tab = b.getAttribute('data-tab');
+      state.view = 'list';
+      for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('active', x === b);
+      void load();
+    });
+  }
+  $('refresh').addEventListener('click', () => { state.view = 'list'; void load(); });
+  $('filter').addEventListener('input', (e) => { state.filter = e.target.value; void load(); });
+
+  window.axion.on('ready', (info) => {
+    applyTheme(info && info.theme);
+    window.axion.window?.setTitle('Docker Manager');
+    void load();
+  });
+  window.axion.on('theme-change', applyTheme);
+  window.axion.on('session-change', () => load());
+</script>
+</body>
+</html>

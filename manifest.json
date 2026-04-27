@@ -1,0 +1,15 @@
+{
+  "id": "docker-manager-plugin",
+  "name": "Docker Manager",
+  "version": "1.0.0",
+  "author": "hejazi",
+  "presentations": {
+    "plugin": {
+      "entry": "index.html",
+      "defaultSize": { "w": 1100, "h": 720 }
+    }
+  },
+  "permissions": ["ssh.exec"],
+  "requirements": ["docker"],
+  "sdk": "1"
+}
